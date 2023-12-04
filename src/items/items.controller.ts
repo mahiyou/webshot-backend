@@ -11,6 +11,7 @@ import { Item } from './interfaces/item.interface';
 import puppeteer from 'puppeteer';
 import { v4 as uuid } from 'uuid';
 import * as sharp from 'sharp';
+import { MongoClient } from 'mongodb';
 
 @Controller()
 export class ItemsController {
@@ -19,34 +20,93 @@ export class ItemsController {
     @Get("capture")
     @UsePipes(new ValidationPipe({ transform: true }))
     async capture(@Query() query: CaptureRequest, @Res() res: Response) {
-        const imageName = uuid();
-        try {
-            const image = await this.getScreenShot(query, imageName);
-            const file = createReadStream(image);
-            const webSiteUrl = query.url;
-            const newItem = new this.itemModel({ image: path.basename(image), webSiteUrl, saveTime: Date.now() })
-            newItem.save();
-            const imageStat = await stat(image);
-            res.set({
-                'Content-Type': (mime as any).getType(image),
-                'Content-Length': imageStat.size,
-            });
-            // pipe(res);
-            if (query.crop || query.width) {
-                const imageWidth = (await sharp(image).metadata()).width
-                sharp(image).extract({
-                    height: parseInt(query.crop) ? parseInt(query.crop) : 800,
-                    left: 0,
-                    top: 0,
-                    width: imageWidth
-                })
-                .resize({ width: parseInt(query.width) ? parseInt(query.width) : 1200})
-                .pipe(res)
+        const recentData = (await this.findRecentRecords(query.maxAge))
+        if (recentData.length > 0) {
+            const result = recentData.find(({ webSiteUrl }) => webSiteUrl === query.url)
+            if (result) {
+                const image = `${__dirname}/../../public/images/${result.image}`
+                console.log(result.image)
+                const file = createReadStream(image);
+                const imageStat = await stat(image);
+                res.set({
+                    'Content-Type': (mime as any).getType(image),
+                    'Content-Length': imageStat.size,
+                });
+                if (query.crop || query.width) {
+                    const imageWidth = (await sharp(image).metadata()).width
+                    sharp(image).extract({
+                        height: parseInt(query.crop) ? parseInt(query.crop) : 800,
+                        left: 0,
+                        top: 0,
+                        width: imageWidth
+                    })
+                        .resize({ width: parseInt(query.width) ? parseInt(query.width) : 1200 })
+                        .pipe(res)
+                } else {
+                    file.pipe(res)
+                }
+
             } else {
-                file.pipe(res)
+                const imageName = uuid();
+                try {
+                    const image = await this.getScreenShot(query, imageName);
+                    const file = createReadStream(image);
+                    const webSiteUrl = query.url;
+                    const newItem = new this.itemModel({ image: path.basename(image), webSiteUrl, saveTime: Date.now() })
+                    newItem.save();
+                    const imageStat = await stat(image);
+                    res.set({
+                        'Content-Type': (mime as any).getType(image),
+                        'Content-Length': imageStat.size,
+                    });
+                    // pipe(res);
+                    if (query.crop || query.width) {
+                        const imageWidth = (await sharp(image).metadata()).width
+                        sharp(image).extract({
+                            height: parseInt(query.crop) ? parseInt(query.crop) : 800,
+                            left: 0,
+                            top: 0,
+                            width: imageWidth
+                        })
+                            .resize({ width: parseInt(query.width) ? parseInt(query.width) : 1200 })
+                            .pipe(res)
+                    } else {
+                        file.pipe(res)
+                    }
+                } catch (error) {
+                    console.log(error);
+                }
             }
-        } catch (error) {
-            console.log(error);
+        } else {
+            const imageName = uuid();
+            try {
+                const image = await this.getScreenShot(query, imageName);
+                const file = createReadStream(image);
+                const webSiteUrl = query.url;
+                const newItem = new this.itemModel({ image: path.basename(image), webSiteUrl, saveTime: Date.now() })
+                newItem.save();
+                const imageStat = await stat(image);
+                res.set({
+                    'Content-Type': (mime as any).getType(image),
+                    'Content-Length': imageStat.size,
+                });
+                // pipe(res);
+                if (query.crop || query.width) {
+                    const imageWidth = (await sharp(image).metadata()).width
+                    sharp(image).extract({
+                        height: parseInt(query.crop) ? parseInt(query.crop) : 800,
+                        left: 0,
+                        top: 0,
+                        width: imageWidth
+                    })
+                        .resize({ width: parseInt(query.width) ? parseInt(query.width) : 1200 })
+                        .pipe(res)
+                } else {
+                    file.pipe(res)
+                }
+            } catch (error) {
+                console.log(error);
+            }
         }
     }
 
@@ -67,6 +127,9 @@ export class ItemsController {
         await browser.close();
         return path;
     }
+    private findRecentRecords(maxAge: string) {
+        return this.itemModel.find({ saveTime: { $gt: (Date.now() - (parseInt(maxAge) * 1000)) } })
+    }
 
     @Get("gallery/:count")
     getImages(@Param('count') count) {
@@ -76,11 +139,6 @@ export class ItemsController {
     @Get(':filename')
     findFile(@Param('filename') filename, @Res() res: Response) {
         res.sendFile(filename, { root: './public/images' })
-    }
-
-    @Get()
-    findRecentRecords(){
-        return this.itemModel.find
     }
 
 }
