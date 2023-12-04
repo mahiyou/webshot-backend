@@ -3,10 +3,12 @@ import {IsUrl} from 'class-validator';
 export class CaptureRequest { 
     @IsUrl()
     url: string;
-    viewportWidth: number = 1200;
-    viewportHeight: number = 800;
-    width: number;
-    crop: number;
+    viewportWidth: string = '1200';
+    viewportHeight: string = '800';
+    width: string;
+    crop: string;
     fullPage: boolean = false;
     type: string = 'jpg';
+    wait: string = '0';
+    maxAge: string = '0';
 }

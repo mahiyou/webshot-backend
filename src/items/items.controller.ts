@@ -1,8 +1,8 @@
-import { Controller, Get, Res, Query, UsePipes, ValidationPipe, Req, Param, All } from '@nestjs/common';
+import { Controller, Get, Res, Query, UsePipes, ValidationPipe, Param } from '@nestjs/common';
 import { Response } from 'express';
 import { CaptureRequest } from './dto/CaptureRequest.dto';
 import * as path from 'path';
-import { createReadStream, createWriteStream } from 'fs';
+import { createReadStream } from 'fs';
 import { stat } from "fs/promises";
 import * as mime from 'mime';
 import { Model } from 'mongoose';
@@ -11,8 +11,6 @@ import { Item } from './interfaces/item.interface';
 import puppeteer from 'puppeteer';
 import { v4 as uuid } from 'uuid';
 import * as sharp from 'sharp';
-import * as fs from 'fs';
-import { inherits } from 'util';
 
 @Controller()
 export class ItemsController {
@@ -22,30 +20,34 @@ export class ItemsController {
     @UsePipes(new ValidationPipe({ transform: true }))
     async capture(@Query() query: CaptureRequest, @Res() res: Response) {
         const imageName = uuid();
-        this.getScreenShot(query, imageName)
-            .then(async () => {
-                const image = path.resolve(__dirname, "..", "..", "public", "images", `${imageName}.${query.type}`);
-                const file = createReadStream(image);
-                const webSiteUrl = query.url;
-                const newItem = new this.itemModel({ image: `${imageName}.${query.type}`, webSiteUrl })
-                newItem.save();
-                const imageStat = await stat(image);
-                res.set({
-                    'Content-Type': (mime as any).getType(image),
-                    'Content-Length': imageStat.size,
-                });
-                // file.pipe(res);
-                sharp(image)
-                    .resize(query.width ? parseInt(`${query.width}`) : undefined ,query.crop ? parseInt(`${query.crop}`) : undefined)
-                    .pipe(res)
-
-
-
-            },
-                (error) => {
-                    console.log(error)
-                }
-            )
+        try {
+            const image = await this.getScreenShot(query, imageName);
+            const file = createReadStream(image);
+            const webSiteUrl = query.url;
+            const newItem = new this.itemModel({ image: path.basename(image), webSiteUrl, saveTime: Date.now() })
+            newItem.save();
+            const imageStat = await stat(image);
+            res.set({
+                'Content-Type': (mime as any).getType(image),
+                'Content-Length': imageStat.size,
+            });
+            // pipe(res);
+            if (query.crop || query.width) {
+                const imageWidth = (await sharp(image).metadata()).width
+                sharp(image).extract({
+                    height: parseInt(query.crop) ? parseInt(query.crop) : 800,
+                    left: 0,
+                    top: 0,
+                    width: imageWidth
+                })
+                .resize({ width: parseInt(query.width) ? parseInt(query.width) : 1200})
+                .pipe(res)
+            } else {
+                file.pipe(res)
+            }
+        } catch (error) {
+            console.log(error);
+        }
     }
 
     private async getScreenShot(query: CaptureRequest, imageName: string) {
@@ -56,10 +58,14 @@ export class ItemsController {
             height: parseInt(`${query.viewportHeight}`),
         });
         await page.goto(query.url);
+        await new Promise((resolve) => setTimeout(resolve, parseInt(query.wait) * 1000));
+        const path = `${__dirname}/../../public/images/${imageName}.${query.type}`;
         await page.screenshot({
-            path: `${__dirname}/../../public/images/${imageName}.${query.type}`, fullPage: query.fullPage
+            path,
+            fullPage: query.fullPage
         });
         await browser.close();
+        return path;
     }
 
     @Get("gallery/:count")
@@ -70,6 +76,11 @@ export class ItemsController {
     @Get(':filename')
     findFile(@Param('filename') filename, @Res() res: Response) {
         res.sendFile(filename, { root: './public/images' })
+    }
+
+    @Get()
+    findRecentRecords(){
+        return this.itemModel.find
     }
 
 }
