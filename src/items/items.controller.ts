@@ -11,7 +11,7 @@ import { Item } from './interfaces/item.interface';
 import puppeteer from 'puppeteer';
 import { v4 as uuid } from 'uuid';
 import * as sharp from 'sharp';
-import { loadImage, createCanvas, PNGStream } from 'canvas';
+import { createCanvas } from 'canvas';
 import * as fs from 'fs'
 import { Readable } from 'stream';
 
@@ -38,7 +38,7 @@ export class ItemsController {
     @Get("capture")
     @UsePipes(new ValidationPipe({ transform: true }))
     async capture(@Query() query: CaptureRequest, @Res() res: Response) {
-        const recentData = await this.itemModel.findOne({ 
+        const recentData = await this.itemModel.findOne({
             webSiteUrl: query.url,
             saveTime: {
                 $gt: Date.now() - (parseInt(query.maxAge) * 1000)
@@ -48,7 +48,7 @@ export class ItemsController {
             this.sendImage(res, `${__dirname}/../../public/images/${recentData.image}`);
             return;
         }
-          
+
         const imageName = uuid();
         try {
             const image = await this.getScreenShot(query, imageName);
@@ -65,7 +65,7 @@ export class ItemsController {
                     width: imageWidth
                 })
                     .resize({ width: parseInt(query.width) ? parseInt(query.width) : 1200 });
-                
+
                 this.sendImage(res, imageStream, (mime as any).getType(image));
             } else {
                 this.sendImage(res, image);
@@ -94,7 +94,9 @@ export class ItemsController {
             height: parseInt(`${query.viewportHeight}`),
         });
         try {
-            await page.goto(query.url);
+            await page.goto(query.url, {
+                waitUntil: 'networkidle0'
+            });
             await new Promise((resolve) => setTimeout(resolve, parseInt(query.wait) * 1000));
             const path = `${__dirname}/../../public/images/${imageName}.${query.type}`;
             await page.screenshot({
@@ -108,7 +110,6 @@ export class ItemsController {
             await browser.close();
             throw new Error(error);
         }
-
     }
     @Get("gallery/:count")
     getImages(@Param('count') count) {
@@ -119,5 +120,4 @@ export class ItemsController {
     findFile(@Param('filename') filename, @Res() res: Response) {
         res.sendFile(filename, { root: './public/images' })
     }
-
 }
